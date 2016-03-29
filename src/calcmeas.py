@@ -8,6 +8,7 @@ History:
             v0.1    2016-03-07    SHI, Chen    init version
             v0.2    2016-03-08    SHI, Chen    demo version, calculate EPAY KPIs
             v0.3    2016-03-08    SHI, Chen    refactory the code, use 'dict' as element for infolists
+            v0.3.1  2016-03-29    SHI, Chen    fix the "div 0" issue
 
 '''
 
@@ -163,12 +164,20 @@ def generate_reports():
             
         # calculate and save the KPIs
         epay_kpi['std_client_num'] = std_client_num
-        epay_kpi['std_client_cpu_usage'] = std_client_cpu_usage / std_client_num
-        epay_kpi['std_client_call_cost'] = epay_kpi['std_client_cpu_usage'] * 10 * epay_kpi['std_client_num'] / epay_kpi['tps']
+        if std_client_num:
+            epay_kpi['std_client_cpu_usage'] = std_client_cpu_usage / std_client_num
+            epay_kpi['std_client_call_cost'] = epay_kpi['std_client_cpu_usage'] * 10 * epay_kpi['std_client_num'] / epay_kpi['tps']
+        else:
+            epay_kpi['std_client_cpu_usage'] = 0
+            epay_kpi['std_client_call_cost'] = 0
         
         epay_kpi['spc_client_num'] = spc_client_num
-        epay_kpi['spc_client_cpu_usage'] = spc_client_cpu_usage / spc_client_num
-        epay_kpi['spc_client_call_cost'] = epay_kpi['spc_client_cpu_usage'] * 10 * epay_kpi['spc_client_num'] / epay_kpi['tps']
+        if spc_client_num:
+            epay_kpi['spc_client_cpu_usage'] = spc_client_cpu_usage / spc_client_num
+            epay_kpi['spc_client_call_cost'] = epay_kpi['spc_client_cpu_usage'] * 10 * epay_kpi['spc_client_num'] / epay_kpi['tps']
+        else:
+            epay_kpi['spc_client_cpu_usage'] = 0
+            epay_kpi['spc_client_call_cost'] = 0
 
     # calculate the final line
     count = 0
@@ -183,12 +192,19 @@ def generate_reports():
         average_std_client_call_cost += item['std_client_call_cost']
         average_spc_client_cpu_usage += item['spc_client_cpu_usage']    
         average_spc_client_call_cost += item['spc_client_call_cost']
-        
-    average_tps /= count
-    average_std_client_cpu_usage /= count
-    average_std_client_call_cost /= count
-    average_spc_client_cpu_usage /= count
-    average_spc_client_call_cost /= count
+    
+    if count:   
+        average_tps /= count
+        average_std_client_cpu_usage /= count
+        average_std_client_call_cost /= count
+        average_spc_client_cpu_usage /= count
+        average_spc_client_call_cost /= count
+    else:
+        average_tps = 0
+        average_std_client_cpu_usage = 0
+        average_std_client_call_cost = 0
+        average_spc_client_cpu_usage = 0
+        average_spc_client_call_cost = 0
         
     # print out the report
     print '\nEPAY SPA KPI report: (demo version)'
