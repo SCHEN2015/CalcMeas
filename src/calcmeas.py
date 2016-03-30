@@ -16,7 +16,7 @@ import sys
 import re
 
 
-role_define_list = {'pilot' : ('0-0-1', '0-0-9'),
+host_role_definition = {'pilot' : ('0-0-1', '0-0-9'),
                     'db1' : ('0-0-2', '0-0-10'),    # 'db1' for DB nodes with ACM 
                     'db2' : ('0-0-3', '0-0-11', '0-1-2', '0-1-10', '0-1-3', '0-1-11'),
                     'io' : ('0-0-4', '0-0-12')
@@ -150,14 +150,14 @@ def generate_reports():
             
             # calculate standard client average CPU usage
             if item['report_time'] == epay_kpi['report_time'] and \
-            item['host_id'] not in role_define_list['db1'] and \
+            item['host_id'] not in host_role_definition['db1'] and \
             item['process_name'].find(spa_name + '_') == 0:
                 std_client_num += 1
                 std_client_cpu_usage += float(item['cpu_usage'])
  
             # calculate specialized client average CPU usage
             if item['report_time'] == epay_kpi['report_time'] and \
-            item['host_id'] in role_define_list['db1'] and \
+            item['host_id'] in host_role_definition['db1'] and \
             item['process_name'].find(spa_name + '_') == 0:
                 spc_client_num += 1
                 spc_client_cpu_usage += float(item['cpu_usage'])
