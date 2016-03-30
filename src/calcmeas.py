@@ -9,6 +9,7 @@ History:
             v0.2    2016-03-08    SHI, Chen    demo version, calculate EPAY KPIs
             v0.3    2016-03-08    SHI, Chen    refactory the code, use 'dict' as element for infolists
             v0.3.1  2016-03-29    SHI, Chen    fix the "div 0" issue
+            v0.4    2016-03-30    SHI, Chen    support calculating process CPU usage
 
 '''
 
@@ -16,7 +17,7 @@ import sys
 import re
 
 
-role_define_list = {'pilot' : ('0-0-1', '0-0-9'),
+host_role_definition = {'pilot' : ('0-0-1', '0-0-9'),
                     'db1' : ('0-0-2', '0-0-10'),    # 'db1' for DB nodes with ACM 
                     'db2' : ('0-0-3', '0-0-11', '0-1-2', '0-1-10', '0-1-3', '0-1-11'),
                     'io' : ('0-0-4', '0-0-12')
@@ -124,6 +125,27 @@ def analyze_measlog(measlog):
 
 
 
+def get_summarized_data(report_list):
+    '''this function calculates the total number and sum value for each numeric data in a dict-based list. 
+    inputs:
+        it takes a dict-based list, thus each tuple in the list should be a dict.
+    outputs:
+        it returns a dict containing the count and sum value of each numeric data in original dicts.
+    '''
+    summarized_data = {}
+    for item in report_list:
+        for key in item.keys():
+            if type(item[key]) in (int, float):
+                if not summarized_data.has_key(key + '(sum)'):
+                    summarized_data[key + '(cnt)'] = 1
+                    summarized_data[key + '(sum)'] = item[key]
+                else:
+                    summarized_data[key + '(cnt)'] += 1
+                    summarized_data[key + '(sum)'] += item[key]
+    
+    return summarized_data
+
+
 def generate_reports():
     '''this function reads information from infolist then calculate the KPIs and print the report.''' 
     
@@ -150,14 +172,14 @@ def generate_reports():
             
             # calculate standard client average CPU usage
             if item['report_time'] == epay_kpi['report_time'] and \
-            item['host_id'] not in role_define_list['db1'] and \
+            item['host_id'] not in host_role_definition['db1'] and \
             item['process_name'].find(spa_name + '_') == 0:
                 std_client_num += 1
                 std_client_cpu_usage += float(item['cpu_usage'])
  
             # calculate specialized client average CPU usage
             if item['report_time'] == epay_kpi['report_time'] and \
-            item['host_id'] in role_define_list['db1'] and \
+            item['host_id'] in host_role_definition['db1'] and \
             item['process_name'].find(spa_name + '_') == 0:
                 spc_client_num += 1
                 spc_client_cpu_usage += float(item['cpu_usage'])
@@ -224,6 +246,87 @@ def generate_reports():
     return
 
 
+def generate_process_cpu_reports(process_name = 'MHRPROC'):
+    '''generate the report for specified process cpu usage.'''
+    
+    process_cpu_report_list = []
+    
+    # build up basic structure
+    for item in MS_PROCESS_MEAS_infolist:
+        if {'report_time' : item['report_time']} not in process_cpu_report_list:
+            process_cpu_report_list.append({'report_time' : item['report_time']})
+            
+    #print process_cpu_report_list
+    
+    # fill up KPIs
+    for process_cpu_report in process_cpu_report_list:
+        
+        #print "calculate CPU usage for", process_name, "at",  process_cpu_report['report_time']
+        
+        pilot_cnt = pilot_cpu = 0
+        db_cnt = db_cpu = 0
+        io_cnt = io_cpu = 0
+        app_cnt = app_cpu = 0
+        
+        # fill up KPIs for each time points
+        for item in MS_PROCESS_MEAS_infolist:
+            if item['process_name'] == process_name and \
+            process_cpu_report['report_time'] == item['report_time']:
+            
+                # prepare cpu usage values for each role
+                if item['host_id'] in host_role_definition['pilot']:
+                    pilot_cnt += 1
+                    pilot_cpu += float(item['cpu_usage'])
+                elif item['host_id'] in host_role_definition['io']:
+                    io_cnt += 1
+                    io_cpu += float(item['cpu_usage'])
+                elif item['host_id'] in (host_role_definition['db1'] + host_role_definition['db2']):
+                    db_cnt += 1
+                    db_cpu += float(item['cpu_usage'])
+                else:
+                    app_cnt += 1
+                    app_cpu += float(item['cpu_usage'])
+        else:
+            # calculate the average cpu usage
+            process_cpu_report['pilot_cnt'] = pilot_cnt
+            process_cpu_report['db_cnt'] = db_cnt
+            process_cpu_report['io_cnt'] = io_cnt
+            process_cpu_report['app_cnt'] = app_cnt
+            
+            process_cpu_report['pilot_cpu'] = 0 if pilot_cnt == 0 else pilot_cpu / pilot_cnt
+            process_cpu_report['db_cpu'] = 0 if db_cnt == 0 else db_cpu / db_cnt
+            process_cpu_report['io_cpu'] = 0 if io_cnt == 0 else io_cpu / io_cnt
+            process_cpu_report['app_cpu'] = 0 if app_cnt == 0 else app_cpu / app_cnt
+
+    # get the summary values for the final line
+    summarized_data = get_summarized_data(process_cpu_report_list)
+
+    # print the table
+    print '\nCPU usage report: (demo version)', process_name
+    print '=' * 60
+    print '# report_time, process, pilot cnt, cpu, io cnt, cpu, db cnt, cpu, app cnt, cpu'
+    
+    count = 0
+    for item in process_cpu_report_list:
+        count += 1
+        print count, item['report_time'], process_name, \
+        item['pilot_cnt'], format(item['pilot_cpu'], '.2f'), \
+        item['db_cnt'], format(item['db_cpu'], '.2f'), \
+        item['io_cnt'], format(item['io_cpu'], '.2f'), \
+        item['app_cnt'], format(item['app_cpu'], '.2f') \
+        
+    print '-' * 60
+    print ' *', '        AVERAGE ', process_name, \
+    '--', format(summarized_data['pilot_cpu(sum)'] / summarized_data['pilot_cpu(cnt)'], '.2f'), \
+    '--', format(summarized_data['db_cpu(sum)'] / summarized_data['db_cpu(cnt)'], '.2f'), \
+    '--', format(summarized_data['io_cpu(sum)'] / summarized_data['io_cpu(cnt)'], '.2f'), \
+    '--', format(summarized_data['app_cpu(sum)'] / summarized_data['app_cpu(cnt)'], '.2f')
+
+    return
+    
+
+
+
 def main():
     '''check input parameters, load the meanslog file'''
     
@@ -241,6 +344,10 @@ def main():
     analyze_measlog(measlog)
     generate_reports()
     
+    print '=' * 60
+    generate_process_cpu_reports()
+    generate_process_cpu_reports('asd')
+    generate_process_cpu_reports('APROC')
     
     print '=' * 60
     print 'finished!'
