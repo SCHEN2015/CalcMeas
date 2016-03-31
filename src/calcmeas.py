@@ -8,13 +8,14 @@ History:
             v0.1    2016-03-07    SHI, Chen    init version
             v0.2    2016-03-08    SHI, Chen    demo version, calculate EPAY KPIs
             v0.3    2016-03-08    SHI, Chen    refactory the code, use 'dict' as element for infolists
-            v0.3.1  2016-03-29    SHI, Chen    fix the "div 0" issue
-            v0.4    2016-03-30    SHI, Chen    support calculating process CPU usage
-
+            v0.3.1  2016-03-29    SHI, Chen    [iss001] fix the "div 0" issue
+            v0.4    2016-03-30    SHI, Chen    [fea001] support calculating process CPU usage
+            v0.5    2016-03-31    SHI, Chen    [fea002] use PrettyTable for the outputs
 '''
 
 import sys
 import re
+from prettytable import PrettyTable
 
 
 host_role_definition = {'pilot' : ('0-0-1', '0-0-9'),
@@ -162,7 +163,6 @@ def generate_reports():
             epay_kpi['tps'] = item['tps']
             epay_kpi_list.append(epay_kpi)
     
-    
     # add more KPIs to epay_kpi_list from MS_PROCESS_MEAS_infolist
     for epay_kpi in epay_kpi_list:
         
@@ -201,50 +201,41 @@ def generate_reports():
             epay_kpi['spc_client_cpu_usage'] = 0
             epay_kpi['spc_client_call_cost'] = 0
 
-    # calculate the final line
-    count = 0
-    average_tps = 0
-    average_std_client_cpu_usage = average_std_client_call_cost = 0
-    average_spc_client_cpu_usage = average_spc_client_call_cost = 0
-    
-    for item in epay_kpi_list:
-        count += 1
-        average_tps += item['tps']
-        average_std_client_cpu_usage += item['std_client_cpu_usage']
-        average_std_client_call_cost += item['std_client_call_cost']
-        average_spc_client_cpu_usage += item['spc_client_cpu_usage']    
-        average_spc_client_call_cost += item['spc_client_call_cost']
-    
-    if count:   
-        average_tps /= count
-        average_std_client_cpu_usage /= count
-        average_std_client_call_cost /= count
-        average_spc_client_cpu_usage /= count
-        average_spc_client_call_cost /= count
-    else:
-        average_tps = 0
-        average_std_client_cpu_usage = 0
-        average_std_client_call_cost = 0
-        average_spc_client_cpu_usage = 0
-        average_spc_client_call_cost = 0
-        
-    # print out the report
-    print '\nEPAY SPA KPI report: (demo version)'
-    print '=' * 60
-    print '# report_time, tps, StdClient# CPU% CallCost, SpcClient# CPU% CallCost'
-    
-    count = 0
-    for item in epay_kpi_list:
-        count += 1
-        print count, item['report_time'], format(item['tps'], ','), \
-        item['std_client_num'], format(item['std_client_cpu_usage'], '.2f'), format(item['std_client_call_cost'], '.2f'), \
-        item['spc_client_num'], format(item['spc_client_cpu_usage'], '.2f'), format(item['spc_client_call_cost'], '.2f')
-    print '-' * 60
-    print '  AVERAGE         ', format(average_tps, ','), \
-    '--', format(average_std_client_cpu_usage, '.2f'), format(average_std_client_call_cost, '.2f'), \
-    '-', format(average_spc_client_cpu_usage, '.2f'), format(average_spc_client_call_cost, '.2f')
-    return
+    # get the summary values for the final line
+    summarized_data = get_summarized_data(epay_kpi_list)
 
+
+    # print output title
+    print '\nEPAY SPA KPI report:'
+
+    # setup output table
+    ptable = PrettyTable(['No', 'Report Time', 'TPS', 'STD #', 'STD %', 'STD Cost', 'SPC #', 'SPC %', 'SPC Cost'])
+    
+    # add data into table
+    count = 0
+    for item in epay_kpi_list:
+        count += 1
+        
+        ptable.add_row([count, item['report_time'], item['tps'], \
+                        item['std_client_num'], format(item['std_client_cpu_usage'], '.2f'), format(item['std_client_call_cost'], '.2f'), \
+                        item['spc_client_num'], format(item['spc_client_cpu_usage'], '.2f'), format(item['spc_client_call_cost'], '.2f')
+                        ])
+
+    ptable.add_row(['--','----------------', '-----', '-----', '------', '--------', '-----', '------', '--------'])
+    ptable.add_row(['>', 'SUMMARY(AVERAGE)', format(summarized_data['tps(sum)'] / summarized_data['tps(cnt)'], 'd'), \
+                    '-', format(summarized_data['std_client_cpu_usage(sum)'] / summarized_data['std_client_cpu_usage(cnt)'], '.2f'), \
+                    format(summarized_data['std_client_call_cost(sum)'] / summarized_data['std_client_call_cost(cnt)'], '.2f'), \
+                    '-', format(summarized_data['spc_client_cpu_usage(sum)'] / summarized_data['spc_client_cpu_usage(cnt)'], '.2f'), \
+                    format(summarized_data['spc_client_call_cost(sum)'] / summarized_data['spc_client_call_cost(cnt)'], '.2f'),
+                    ])
+    
+    # format this table
+    ptable.align = 'r'
+
+    # print this table
+    print ptable
+
+    return
 
 def generate_process_cpu_reports(process_name = 'MHRPROC'):
     '''generate the report for specified process cpu usage.'''
@@ -301,26 +292,38 @@ def generate_process_cpu_reports(process_name = 'MHRPROC'):
     # get the summary values for the final line
     summarized_data = get_summarized_data(process_cpu_report_list)
 
-    # print the table
-    print '\nCPU usage report: (demo version)', process_name
-    print '=' * 60
-    print '# report_time, process, pilot cnt, cpu, io cnt, cpu, db cnt, cpu, app cnt, cpu'
+
+    # print output title
+    print '\nProcess CPU Usage Report:'
+
+    # setup output table
+    ptable = PrettyTable(['No', 'Report Time', 'Process', 'PI #', 'PI %', 'DB #', 'DB %', 'IO #', 'IO %', 'AP #', 'AP %'])
     
+    # add data into table
     count = 0
     for item in process_cpu_report_list:
         count += 1
-        print count, item['report_time'], process_name, \
-        item['pilot_cnt'], format(item['pilot_cpu'], '.2f'), \
-        item['db_cnt'], format(item['db_cpu'], '.2f'), \
-        item['io_cnt'], format(item['io_cpu'], '.2f'), \
-        item['app_cnt'], format(item['app_cpu'], '.2f') \
         
-    print '-' * 60
-    print ' *', '        AVERAGE ', process_name, \
-    '--', format(summarized_data['pilot_cpu(sum)'] / summarized_data['pilot_cpu(cnt)'], '.2f'), \
-    '--', format(summarized_data['db_cpu(sum)'] / summarized_data['db_cpu(cnt)'], '.2f'), \
-    '--', format(summarized_data['io_cpu(sum)'] / summarized_data['io_cpu(cnt)'], '.2f'), \
-    '--', format(summarized_data['app_cpu(sum)'] / summarized_data['app_cpu(cnt)'], '.2f')
+        ptable.add_row([count, item['report_time'], process_name, \
+                        item['pilot_cnt'], format(item['pilot_cpu'], '.2f'), \
+                        item['db_cnt'], format(item['db_cpu'], '.2f'), \
+                        item['io_cnt'], format(item['io_cpu'], '.2f'), \
+                        item['app_cnt'], format(item['app_cpu'], '.2f')
+                        ])
+
+    ptable.add_row(['--','----------------', '-------', '----', '------', '----', '------', '----', '------', '----', '------'])
+    ptable.add_row(['>', 'SUMMARY(AVERAGE)', process_name, \
+                    '-', format(summarized_data['pilot_cpu(sum)'] / summarized_data['pilot_cpu(cnt)'], '.2f'), \
+                    '-', format(summarized_data['db_cpu(sum)'] / summarized_data['db_cpu(cnt)'], '.2f'), \
+                    '-', format(summarized_data['io_cpu(sum)'] / summarized_data['io_cpu(cnt)'], '.2f'), \
+                    '-', format(summarized_data['app_cpu(sum)'] / summarized_data['app_cpu(cnt)'], '.2f')
+                    ])
+    
+    # format this table
+    ptable.align = 'r'
+
+    # print this table
+    print ptable
 
     return
     
@@ -341,16 +344,23 @@ def main():
         measlog = f.readlines()
         f.close()
 
+    # analyze the measurement log
     analyze_measlog(measlog)
+
+
+    print '\nGenerate Reports\n', '=' * 60
+
+    # generate EPAY reports
     generate_reports()
-    
-    print '=' * 60
+
+    # generate process CPU usage
     generate_process_cpu_reports()
     generate_process_cpu_reports('asd')
     generate_process_cpu_reports('APROC')
     
-    print '=' * 60
-    print 'finished!'
+    
+    print '\n', '=' * 60
+    print 'Finished!'
     
     return
 
