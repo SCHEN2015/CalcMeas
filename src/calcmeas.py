@@ -11,6 +11,7 @@ History:
             v0.3.1  2016-03-29    SHI, Chen    [iss001] fix the "div 0" issue
             v0.4    2016-03-30    SHI, Chen    [fea001] support calculating process CPU usage
             v0.5    2016-03-31    SHI, Chen    [fea002] use PrettyTable for the outputs
+            v0.6    2016-04-27    SHI, Chen    [fea003] support displaying overall CPU usage for specified hosts
 '''
 
 import sys
@@ -27,7 +28,7 @@ host_role_definition = {'pilot' : ('0-0-1', '0-0-9'),
 
 SA_SPAMEAS_infolist = []
 MS_PROCESS_MEAS_infolist = []
-
+MS_PERF_MEAS_infolist = []
 
 
 def get_block_info(measlog, num):
@@ -115,12 +116,38 @@ def analyze_measlog(measlog):
                 print 'Finished processing [', report_time, '] MS_PROCESS_MEAS table;'
         
         
+        # analyze MS_PERF_MEAS table
+        if re.search(r'Control Computer Performance Measurements for MS_PERF_MEAS table', measlog[num]) is not None:
+
+            # get the information of current block
+            begin, end, report_time = get_block_info(measlog, num)
+
+            # get useful information
+            num = begin
+            while num < end:
+                #          299  0-0-2              1             0              0          98
+                match_result = re.search(r'\d+\s+(\d+-\d+-\d+)\s+\d+\s+\d+\s+\d+\s+(\d+)', measlog[num])
+                if match_result:
+                    MS_PERF_MEAS_info = {}
+                    MS_PERF_MEAS_info['host_id'] = match_result.group(1)
+                    MS_PERF_MEAS_info['overall_cpu_usage'] = 100 - int(match_result.group(2))
+                    MS_PERF_MEAS_info['report_time'] = report_time
+                    
+                    # save the information
+                    MS_PERF_MEAS_infolist.append(MS_PERF_MEAS_info)
+                
+                num += 1
+            else:
+                print 'Finished processing [', report_time, '] MS_PERF_MEAS table;'
+                
+                
         # increase line number
         num += 1
 
 
     #print SA_SPAMEAS_infolist
     #print MS_PROCESS_MEAS_infolist
+    #print MS_PERF_MEAS_infolist
 
     return
 
@@ -237,6 +264,7 @@ def generate_reports():
 
     return
 
+
 def generate_process_cpu_reports(process_name = 'MHRPROC'):
     '''generate the report for specified process cpu usage.'''
     
@@ -328,6 +356,66 @@ def generate_process_cpu_reports(process_name = 'MHRPROC'):
     return
     
 
+def generate_hosts_overall_cpu_reports(*host_ids):
+    '''generate the report for specified hosts overall cpu usage.'''
+    
+    # check criteria
+    if host_ids == ():
+        print 'def generate_hosts_overall_cpu_reports(*host_ids) ...'
+        print 'host_ids should be specified. function returned directly.'
+        return
+    
+    hosts_overall_cpu_reports_list = []
+    
+    # build up basic structure
+    for item in MS_PERF_MEAS_infolist:
+        if {'report_time' : item['report_time']} not in hosts_overall_cpu_reports_list:
+            hosts_overall_cpu_reports_list.append({'report_time' : item['report_time']})
+    
+    #print hosts_overall_cpu_reports_list
+    
+    # fill up KPIs
+    for hosts_overall_cpu_reports in hosts_overall_cpu_reports_list:
+        
+        # fill up KPIs for each time points
+        for item in MS_PERF_MEAS_infolist:
+            if hosts_overall_cpu_reports['report_time'] == item['report_time']:
+                
+                # fill up overall cpu usage for each host_id
+                for host_id in host_ids:
+                    if host_id == item['host_id']:
+                        hosts_overall_cpu_reports[host_id] = item['overall_cpu_usage']
+                        
+    #print hosts_overall_cpu_reports_list
+
+    # print output title
+    print '\nHosts Overall CPU Usage Report:'
+
+    # setup output table
+    ptable = PrettyTable(['No', 'Report Time'] + list(host_ids))
+    
+    # add data into table
+    count = 0
+    for item in hosts_overall_cpu_reports_list:
+        count += 1
+        
+        cpu_usage_list = []
+        
+        for host_id in host_ids:
+            if item.has_key(host_id):
+                cpu_usage_list.append(item[host_id])
+            else:
+                cpu_usage_list.append('N/A')
+                
+        ptable.add_row([count, item['report_time']] + cpu_usage_list)
+
+    # format this table
+    ptable.align = 'r'
+
+    # print this table
+    print ptable
+
+    return
 
 
 def main():
@@ -350,14 +438,17 @@ def main():
 
     print '\nGenerate Reports\n', '=' * 60
 
+    # generate hosts overall CPU usage
+    generate_hosts_overall_cpu_reports('0-0-1', '0-0-9', '0-0-2', '0-0-10', '0-0-5')
+    
     # generate EPAY reports
     generate_reports()
 
     # generate process CPU usage
     generate_process_cpu_reports()
-    generate_process_cpu_reports('asd')
-    generate_process_cpu_reports('APROC')
-    
+    #generate_process_cpu_reports('asd')
+    #generate_process_cpu_reports('APROC')
+
     
     print '\n', '=' * 60
     print 'Finished!'

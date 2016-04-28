@@ -14,6 +14,7 @@ To use this tool you need Python 2.6 or above with 3-party packages:
 ## Feature List
 [fea001] support calculating process CPU usage
 [fea002] use PrettyTable for the outputs
+[fea003] support displaying overall CPU usage for specified hosts
 
 ## Issue List
 [iss001] fix the "div 0" issue
