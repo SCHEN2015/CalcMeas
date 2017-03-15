@@ -13,6 +13,7 @@ History:
             v0.5    2016-03-31    SHI, Chen    [fea002] use PrettyTable for the outputs
             v0.6    2016-04-27    SHI, Chen    [fea003] support displaying overall CPU usage for specified hosts
             v0.7    2017-03-14    SHI, Chen    [fea004] support specialized clients on IO blades
+            v0.8    2017-03-15    SHI, Chen    [fea005] support collect CPU usage for SPA process and RTDB process
 '''
 
 import sys
@@ -177,7 +178,9 @@ def get_summarized_data(report_list):
 
 def generate_reports():
     '''this function reads information from infolist then calculate the KPIs and print the report.
-    assumption: EPAY call routing clients on "db1", notification clients on "io", all standard clients on other blades.
+    assumption: 
+    1. Only one EPAY version installed on the system.
+    2. EPAY call routing clients on "db1", notification clients on "io", all standard clients on other blades.
     ''' 
     
     # generate EPAY KPIs report
@@ -287,8 +290,14 @@ def generate_reports():
     return
 
 
-def generate_process_cpu_reports(process_name = 'MHRPROC'):
-    '''generate the report for specified process cpu usage.'''
+def generate_process_cpu_reports(process_name = 'MHRPROC', process_type = 0):
+    '''
+    generate the report for specified process cpu usage.
+    process_name indicates the name of the process you want to collect, and process_type indicates the type of the process:
+    0 - Normal process, such as MHRPROC / TCPIPSCH
+    1 - SPA clients, such as EPAY28I_12 / EPPSA173_2
+    2 - RTDB process (RTDB: RPROC or NDB: APROCMATE), such as SIMDB28FRA / ACMDB104P03    
+    '''
     
     process_cpu_report_list = []
     
@@ -311,8 +320,10 @@ def generate_process_cpu_reports(process_name = 'MHRPROC'):
         
         # fill up KPIs for each time points
         for item in MS_PROCESS_MEAS_infolist:
-            if item['process_name'] == process_name and \
-            process_cpu_report['report_time'] == item['report_time']:
+            if process_cpu_report['report_time'] == item['report_time'] and \
+            ((process_type == 0 and item['process_name'] == process_name) or \
+            (process_type == 1 and re.match(process_name + r'.*_\d', item['process_name'])) or \
+            (process_type == 2 and re.match(process_name + r'.*[RP]\S', item['process_name']))) :
             
                 # prepare cpu usage values for each role
                 if item['host_id'] in host_role_definition['pilot']:
@@ -470,7 +481,10 @@ def main():
     generate_process_cpu_reports()
     #generate_process_cpu_reports('asd')
     #generate_process_cpu_reports('APROC')
-
+    generate_process_cpu_reports('EPAY', 1)
+    generate_process_cpu_reports('ACM', 2)
+    generate_process_cpu_reports('SIM', 2)
+    generate_process_cpu_reports('SHRTDB', 2)
     
     print '\n', '=' * 60
     print 'Finished!'
