@@ -12,6 +12,7 @@ History:
             v0.4    2016-03-30    SHI, Chen    [fea001] support calculating process CPU usage
             v0.5    2016-03-31    SHI, Chen    [fea002] use PrettyTable for the outputs
             v0.6    2016-04-27    SHI, Chen    [fea003] support displaying overall CPU usage for specified hosts
+            v0.7    2017-03-14    SHI, Chen    [fea004] support specialized clients on IO blades
 '''
 
 import sys
@@ -20,9 +21,9 @@ from prettytable import PrettyTable
 
 
 host_role_definition = {'pilot' : ('0-0-1', '0-0-9'),
-                    'db1' : ('0-0-2', '0-0-10'),    # 'db1' for DB nodes with ACM 
+                    'db1' : ('0-0-2', '0-0-10'),    # where the EPAY call routing clients running on. 
                     'db2' : ('0-0-3', '0-0-11', '0-1-2', '0-1-10', '0-1-3', '0-1-11'),
-                    'io' : ('0-0-4', '0-0-12')
+                    'io' : ('0-0-4', '0-0-12')      # where the EPAY notification clients running on.
                     }
 
 
@@ -175,7 +176,9 @@ def get_summarized_data(report_list):
 
 
 def generate_reports():
-    '''this function reads information from infolist then calculate the KPIs and print the report.''' 
+    '''this function reads information from infolist then calculate the KPIs and print the report.
+    assumption: EPAY call routing clients on "db1", notification clients on "io", all standard clients on other blades.
+    ''' 
     
     # generate EPAY KPIs report
     spa_name = ''
@@ -194,23 +197,31 @@ def generate_reports():
     for epay_kpi in epay_kpi_list:
         
         std_client_num = std_client_cpu_usage = 0
-        spc_client_num = spc_client_cpu_usage = 0
+        cr_spc_client_num = nt_spc_client_num = cr_spc_client_cpu_usage = nt_spc_client_cpu_usage = 0
         for item in MS_PROCESS_MEAS_infolist:
             
             # calculate standard client average CPU usage
             if item['report_time'] == epay_kpi['report_time'] and \
             item['host_id'] not in host_role_definition['db1'] and \
+            item['host_id'] not in host_role_definition['io'] and \
             item['process_name'].find(spa_name + '_') == 0:
                 std_client_num += 1
                 std_client_cpu_usage += float(item['cpu_usage'])
  
-            # calculate specialized client average CPU usage
+            # calculate specialized client (call routing) average CPU usage
             if item['report_time'] == epay_kpi['report_time'] and \
             item['host_id'] in host_role_definition['db1'] and \
             item['process_name'].find(spa_name + '_') == 0:
-                spc_client_num += 1
-                spc_client_cpu_usage += float(item['cpu_usage'])
-            
+                cr_spc_client_num += 1
+                cr_spc_client_cpu_usage += float(item['cpu_usage'])
+                
+            # calculate specialized client (notification) average CPU usage
+            if item['report_time'] == epay_kpi['report_time'] and \
+            item['host_id'] in host_role_definition['io'] and \
+            item['process_name'].find(spa_name + '_') == 0:
+                nt_spc_client_num += 1
+                nt_spc_client_cpu_usage += float(item['cpu_usage'])
+                
         # calculate and save the KPIs
         epay_kpi['std_client_num'] = std_client_num
         if std_client_num:
@@ -220,14 +231,22 @@ def generate_reports():
             epay_kpi['std_client_cpu_usage'] = 0
             epay_kpi['std_client_call_cost'] = 0
         
-        epay_kpi['spc_client_num'] = spc_client_num
-        if spc_client_num:
-            epay_kpi['spc_client_cpu_usage'] = spc_client_cpu_usage / spc_client_num
-            epay_kpi['spc_client_call_cost'] = epay_kpi['spc_client_cpu_usage'] * 10 * epay_kpi['spc_client_num'] / epay_kpi['tps']
+        epay_kpi['cr_spc_client_num'] = cr_spc_client_num
+        if cr_spc_client_num:
+            epay_kpi['cr_spc_client_cpu_usage'] = cr_spc_client_cpu_usage / cr_spc_client_num
+            epay_kpi['cr_spc_client_call_cost'] = epay_kpi['cr_spc_client_cpu_usage'] * 10 * epay_kpi['cr_spc_client_num'] / epay_kpi['tps']
         else:
-            epay_kpi['spc_client_cpu_usage'] = 0
-            epay_kpi['spc_client_call_cost'] = 0
+            epay_kpi['cr_spc_client_cpu_usage'] = 0
+            epay_kpi['cr_spc_client_call_cost'] = 0
 
+        epay_kpi['nt_spc_client_num'] = nt_spc_client_num
+        if nt_spc_client_num:
+            epay_kpi['nt_spc_client_cpu_usage'] = nt_spc_client_cpu_usage / nt_spc_client_num
+            epay_kpi['nt_spc_client_call_cost'] = epay_kpi['nt_spc_client_cpu_usage'] * 10 * epay_kpi['nt_spc_client_num'] / epay_kpi['tps']
+        else:
+            epay_kpi['nt_spc_client_cpu_usage'] = 0
+            epay_kpi['nt_spc_client_call_cost'] = 0
+            
     # get the summary values for the final line
     summarized_data = get_summarized_data(epay_kpi_list)
 
@@ -236,7 +255,7 @@ def generate_reports():
     print '\nEPAY SPA KPI report:'
 
     # setup output table
-    ptable = PrettyTable(['No', 'Report Time', 'TPS', 'STD #', 'STD %', 'STD Cost', 'SPC #', 'SPC %', 'SPC Cost'])
+    ptable = PrettyTable(['No', 'Report Time', 'TPS', 'STD #', 'STD %', 'STD Cost', 'CRT #', 'CRT %', 'CRT Cost', 'NTF #', 'NTF %', 'NTF Cost'])
     
     # add data into table
     count = 0
@@ -245,15 +264,18 @@ def generate_reports():
         
         ptable.add_row([count, item['report_time'], item['tps'], \
                         item['std_client_num'], format(item['std_client_cpu_usage'], '.2f'), format(item['std_client_call_cost'], '.2f'), \
-                        item['spc_client_num'], format(item['spc_client_cpu_usage'], '.2f'), format(item['spc_client_call_cost'], '.2f')
+                        item['cr_spc_client_num'], format(item['cr_spc_client_cpu_usage'], '.2f'), format(item['cr_spc_client_call_cost'], '.2f'), \
+                        item['nt_spc_client_num'], format(item['nt_spc_client_cpu_usage'], '.2f'), format(item['nt_spc_client_call_cost'], '.2f')
                         ])
 
-    ptable.add_row(['--','----------------', '-----', '-----', '------', '--------', '-----', '------', '--------'])
+    ptable.add_row(['--','----------------', '-----', '-----', '------', '--------', '-----', '------', '--------', '-----', '------', '--------'])
     ptable.add_row(['>', 'SUMMARY(AVERAGE)', format(summarized_data['tps(sum)'] / summarized_data['tps(cnt)'], 'd'), \
                     '-', format(summarized_data['std_client_cpu_usage(sum)'] / summarized_data['std_client_cpu_usage(cnt)'], '.2f'), \
                     format(summarized_data['std_client_call_cost(sum)'] / summarized_data['std_client_call_cost(cnt)'], '.2f'), \
-                    '-', format(summarized_data['spc_client_cpu_usage(sum)'] / summarized_data['spc_client_cpu_usage(cnt)'], '.2f'), \
-                    format(summarized_data['spc_client_call_cost(sum)'] / summarized_data['spc_client_call_cost(cnt)'], '.2f'),
+                    '-', format(summarized_data['cr_spc_client_cpu_usage(sum)'] / summarized_data['cr_spc_client_cpu_usage(cnt)'], '.2f'), \
+                    format(summarized_data['cr_spc_client_call_cost(sum)'] / summarized_data['cr_spc_client_call_cost(cnt)'], '.2f'), \
+                    '-', format(summarized_data['nt_spc_client_cpu_usage(sum)'] / summarized_data['nt_spc_client_cpu_usage(cnt)'], '.2f'), \
+                    format(summarized_data['nt_spc_client_call_cost(sum)'] / summarized_data['nt_spc_client_call_cost(cnt)'], '.2f'),
                     ])
     
     # format this table
